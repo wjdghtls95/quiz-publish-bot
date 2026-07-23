@@ -172,41 +172,22 @@ Invoke-RestMethod `
 
 ## Bot commands
 
-| Command | What it does |
-|---------|-------------|
-| `/start` | 봇 상태 및 큐 확인 |
-| `/퀴즈` | 지금 바로 퀴즈 시작 (18:00 크론 기다리지 않고) |
-| `/건너뛰기` | 퀴즈 스킵 → 내일 08:00 발행 예약 |
-| `/발행` | 즉시 발행 (퀴즈 통과 or 건너뛰기 후) |
-| `/미루기` | 오늘 퀴즈를 내일 18:00으로 미루기 |
+Both Korean and English commands work at all times. Bot response language defaults to Korean — change with `/lang en`.
+
+| Korean | English | What it does |
+|--------|---------|-------------|
+| `/start` | `/start` | Status + queue count |
+| `/퀴즈` | `/quiz` | Start quiz immediately (no need to wait for 18:00 cron) |
+| `/건너뛰기` | `/skip` | Skip quiz → schedule publish for tomorrow 08:00 |
+| `/발행` | `/publish` | Publish immediately (after pass or skip) |
+| `/미루기` | `/postpone` | Postpone today's quiz to tomorrow 18:00 |
+| `/큐` | `/queue` | Show pending drafts list with numbers |
+| `/먼저 N` | `/first N` | Move draft #N to front of queue (e.g. `/first 2`) |
+| `/언어 ko\|en` | `/lang ko\|en` | Switch bot language (`/lang en` or `/lang ko`) |
 
 ### Register commands in Telegram
 
-Run once so `/` autocomplete works in the chat:
-
-**Mac**
-```bash
-curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "commands": [
-      {"command": "start", "description": "봇 상태 및 큐 확인"},
-      {"command": "퀴즈", "description": "지금 바로 퀴즈 시작"},
-      {"command": "건너뛰기", "description": "퀴즈 스킵 후 내일 08:00 발행"},
-      {"command": "발행", "description": "즉시 발행"},
-      {"command": "미루기", "description": "내일 18:00으로 미루기"}
-    ]
-  }'
-```
-
-**Windows (PowerShell)**
-```powershell
-Invoke-RestMethod `
-  -Uri "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"commands":[{"command":"start","description":"봇 상태 및 큐 확인"},{"command":"퀴즈","description":"지금 바로 퀴즈 시작"},{"command":"건너뛰기","description":"퀴즈 스킵 후 내일 08:00 발행"},{"command":"발행","description":"즉시 발행"},{"command":"미루기","description":"내일 18:00으로 미루기"}]}'
-```
+No manual setup needed. Send `/start` to the bot — it automatically registers the command list for `/` autocomplete. If you switch language with `/lang en`, the autocomplete updates to English commands instantly.
 
 ---
 

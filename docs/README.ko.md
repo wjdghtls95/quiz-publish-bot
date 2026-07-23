@@ -172,41 +172,22 @@ Invoke-RestMethod `
 
 ## 봇 명령어
 
-| 명령어 | 설명 |
-|--------|------|
-| `/start` | 봇 상태 및 큐 확인 |
-| `/퀴즈` | 지금 바로 퀴즈 시작 (18:00 크론 기다리지 않고) |
-| `/건너뛰기` | 퀴즈 스킵 → 내일 08:00 발행 예약 |
-| `/발행` | 즉시 발행 (퀴즈 통과 or 건너뛰기 후) |
-| `/미루기` | 오늘 퀴즈를 내일 18:00으로 미루기 |
+한국어·영어 명령어가 항상 동시에 작동합니다. 기본 언어는 한국어 — `/lang en`으로 변경 가능.
 
-### Telegram에 명령어 등록
+| 한국어 | 영어 | 설명 |
+|--------|------|------|
+| `/start` | `/start` | 봇 상태 및 큐 확인 |
+| `/퀴즈` | `/quiz` | 지금 바로 퀴즈 시작 (18:00 크론 기다리지 않고) |
+| `/건너뛰기` | `/skip` | 퀴즈 스킵 → 내일 08:00 발행 예약 |
+| `/발행` | `/publish` | 즉시 발행 (퀴즈 통과 or 건너뛰기 후) |
+| `/미루기` | `/postpone` | 오늘 퀴즈를 내일 18:00으로 미루기 |
+| `/큐` | `/queue` | 대기 중인 초안 목록 (번호 포함) |
+| `/먼저 N` | `/first N` | N번 초안을 맨 앞으로 이동 (예: `/먼저 2`) |
+| `/언어 ko\|en` | `/lang ko\|en` | 봇 언어 변경 (`/언어 en` 또는 `/언어 ko`) |
 
-`/` 자동완성이 뜨도록 한 번만 실행하면 됩니다:
+### Telegram 명령어 자동 등록
 
-**Mac**
-```bash
-curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "commands": [
-      {"command": "start", "description": "봇 상태 및 큐 확인"},
-      {"command": "퀴즈", "description": "지금 바로 퀴즈 시작"},
-      {"command": "건너뛰기", "description": "퀴즈 스킵 후 내일 08:00 발행"},
-      {"command": "발행", "description": "즉시 발행"},
-      {"command": "미루기", "description": "내일 18:00으로 미루기"}
-    ]
-  }'
-```
-
-**Windows (PowerShell)**
-```powershell
-Invoke-RestMethod `
-  -Uri "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"commands":[{"command":"start","description":"봇 상태 및 큐 확인"},{"command":"퀴즈","description":"지금 바로 퀴즈 시작"},{"command":"건너뛰기","description":"퀴즈 스킵 후 내일 08:00 발행"},{"command":"발행","description":"즉시 발행"},{"command":"미루기","description":"내일 18:00으로 미루기"}]}'
-```
+수동 설정 불필요. 봇에게 `/start`를 보내면 `/` 자동완성 목록이 자동으로 등록됩니다. `/언어 en`으로 언어를 변경하면 자동완성도 즉시 영어로 갱신됩니다.
 
 ---
 
