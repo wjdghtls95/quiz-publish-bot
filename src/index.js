@@ -1,17 +1,17 @@
 const PASS_SCORE = 70;
 
-// KV key reference
-// 'USER_CHAT_ID'        → user's Telegram chat ID (saved on first /start)
-// 'PENDING_QUEUE'       → [{file, title, quizKey}] queue (max 5)
-// 'NEXT_QUIZ_DATE'      → "2026-07-22" (KST) next quiz date
-// 'SCHEDULE_STATE'      → current schedule state JSON
-// 'BOT_LANG'            → 'ko' (default) | 'en' — change with /lang
-// 'pending_quiz_{key}'  → quiz data (written by blog-starter, read by this Worker)
-// '{chatId}'            → active quiz session
+// KV 키 목록
+// 'USER_CHAT_ID'        → 유저 Telegram chat ID (첫 /start 시 저장)
+// 'PENDING_QUEUE'       → [{file, title, quizKey}] 대기 큐 (최대 5개)
+// 'NEXT_QUIZ_DATE'      → "2026-07-22" (KST) 다음 퀴즈 시작 예정일
+// 'SCHEDULE_STATE'      → 현재 스케줄 상태 JSON
+// 'BOT_LANG'            → 'ko' (기본) | 'en' — /lang 명령어로 변경
+// 'pending_quiz_{key}'  → 퀴즈 데이터 (Python이 저장, Worker가 읽음)
+// '{chatId}'            → 활성 퀴즈 세션 (기존 형식)
 
 // ===== i18n =====
-// Language priority: KV 'BOT_LANG' → env.BOT_LANG → 'ko'
-// Change language: /lang ko | /lang en (no redeploy needed)
+// 언어 우선순위: KV 'BOT_LANG' → env.BOT_LANG → 'ko'
+// 변경: /lang ko | /lang en (재배포 불필요)
 
 const MESSAGES = {
   ko: {
@@ -49,6 +49,12 @@ const MESSAGES = {
     mcLabel: (done, total, diff) => `*Q${done}/${total} [${diff}] (객관식)*`,
     essayLabel: (done, total, diff) => `*서술형 ${done}/${total} [${diff}]*`,
     essayHint: '_자유롭게 답변해주세요_',
+    essayModelAnswer: answer => `📖 *모범 답안*\n\n${answer}\n\n이 내용을 이해했나요?`,
+    essaySelfYes: '✅ 이해했어요',
+    essaySelfNo: '❌ 다시 볼게요',
+    essaySelfYesCb: '✅ 이해한 것으로 기록됨',
+    essaySelfNoCb: '❌ 재검토 항목으로 기록됨',
+    modelAnswerLabel: '모범 답안',
     passed: (pct, c, tot) => `✅ *${pct}점 통과!* (${c}/${tot})\n\n내일 오전 8시에 게시됩니다 🚀`,
     failedHeader: (pct, c, tot) => `❌ *${pct}점 — 70점 미달* (${c}/${tot})\n\n*틀린 문제:*\n\n`,
     sectionWord: '섹션',
@@ -94,6 +100,12 @@ const MESSAGES = {
     mcLabel: (done, total, diff) => `*Q${done}/${total} [${diff}] (Multiple Choice)*`,
     essayLabel: (done, total, diff) => `*Essay ${done}/${total} [${diff}]*`,
     essayHint: '_Answer freely_',
+    essayModelAnswer: answer => `📖 *Model Answer*\n\n${answer}\n\nDid you understand this?`,
+    essaySelfYes: '✅ Got it',
+    essaySelfNo: '❌ Need to review',
+    essaySelfYesCb: '✅ Marked as understood',
+    essaySelfNoCb: '❌ Marked for review',
+    modelAnswerLabel: 'Model answer',
     passed: (pct, c, tot) => `✅ *${pct}% — Passed!* (${c}/${tot})\n\nPublishing tomorrow at 08:00 🚀`,
     failedHeader: (pct, c, tot) => `❌ *${pct}% — Below 70%* (${c}/${tot})\n\n*Wrong answers:*\n\n`,
     sectionWord: 'section',
@@ -106,7 +118,7 @@ const MESSAGES = {
   },
 };
 
-// Language priority: KV 'BOT_LANG' → env.BOT_LANG → 'ko'
+// KV 'BOT_LANG' → env.BOT_LANG → 'ko' 순서로 읽음
 async function getLang(env) {
   const stored = await env.QUIZ_SESSIONS.get('BOT_LANG');
   if (stored === 'en' || stored === 'ko') return stored;
@@ -119,7 +131,7 @@ function msgs(lang) {
 
 const LANG_LABELS = { ko: '한국어 🇰🇷', en: 'English 🇺🇸' };
 
-// Korean command aliases → canonical English commands
+// 한국어 명령어 → 영어 정규 명령어로 정규화
 const CMD_ALIASES = {
   '/퀴즈': '/quiz',
   '/건너뛰기': '/skip',
@@ -147,7 +159,7 @@ export default {
 
 // ===== Scheduled Handlers =====
 
-// 09:00 UTC (18:00 KST) — start quiz
+// 09:00 UTC (18:00 KST) — 퀴즈 시작
 async function handleQuizStart(env) {
   const state = await getScheduleState(env);
   if (state && ['quiz_active', 'failed', 'no_show'].includes(state.state)) return;
@@ -170,6 +182,7 @@ async function handleQuizStart(env) {
 
   const quiz = JSON.parse(quizRaw);
   quiz.userAnswers = {};
+  quiz.essayGrades = {};
 
   await env.QUIZ_SESSIONS.put(chatId, JSON.stringify(quiz), { expirationTtl: 86400 });
   await saveScheduleState({
@@ -188,7 +201,7 @@ async function handleQuizStart(env) {
   await sendNext(chatId, quiz, token, lang, env);
 }
 
-// 23:00 UTC (08:00 KST) — publish
+// 23:00 UTC (08:00 KST) — 발행
 async function handlePublish(env) {
   const state = await getScheduleState(env);
   if (!state || state.state !== 'passed') return;
@@ -204,7 +217,7 @@ async function handlePublish(env) {
   }
 }
 
-// every 30min — retry and reminder
+// 30분마다 — 재시도 및 미응시 알림
 async function handleRetryAndReminder(env) {
   const state = await getScheduleState(env);
   if (!state) return;
@@ -229,6 +242,7 @@ async function handleRetryAndReminder(env) {
       session = JSON.parse(quizRaw);
     }
     session.userAnswers = {};
+    session.essayGrades = {};
     await saveSession(chatId, session, env);
     await saveScheduleState({ ...state, state: 'quiz_active', lastActivityAt: now, lastReminderAt: null }, env);
     await sendTelegram(chatId, m.retryStart(state.retryCount), token);
@@ -252,15 +266,24 @@ async function handleRetryAndReminder(env) {
 async function handleCallbackQuery(query, env) {
   const chatId = query.message.chat.id.toString();
   const token = env.TELEGRAM_BOT_TOKEN;
-  const { q: qIndex, a: answer } = JSON.parse(query.data);
-
+  const data = JSON.parse(query.data);
   const lang = await getLang(env);
-  await answerCallbackQuery(query.id, msgs(lang).cbSelected(answer), token);
+  const m = msgs(lang);
 
   const session = await getSession(chatId, env);
   if (!session) return;
 
-  session.userAnswers[qIndex] = answer;
+  if (data.eg !== undefined) {
+    // 서술형 자가 채점 버튼
+    await answerCallbackQuery(query.id, data.eg ? m.essaySelfYesCb : m.essaySelfNoCb, token);
+    session.essayGrades = session.essayGrades ?? {};
+    session.essayGrades[data.q] = data.eg === 1;
+  } else {
+    // 객관식 선택 버튼
+    await answerCallbackQuery(query.id, m.cbSelected(data.a), token);
+    session.userAnswers[data.q] = data.a;
+  }
+
   await saveSession(chatId, session, env);
 
   const schedState = await getScheduleState(env);
@@ -276,7 +299,7 @@ async function handleMessage(message, env) {
   const token = env.TELEGRAM_BOT_TOKEN;
   const rawText = (message.text ?? '').trim();
 
-  // normalize Korean aliases to canonical English commands
+  // 한국어 명령어를 영어 정규 명령어로 정규화
   const text = CMD_ALIASES[rawText] ?? rawText;
 
   await env.QUIZ_SESSIONS.put('USER_CHAT_ID', chatId);
@@ -294,7 +317,7 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // /lang [ko|en] or /언어 [ko|en]
+  // /lang [ko|en] 또는 /언어 [ko|en]
   if (text === '/lang' || rawText === '/언어') {
     await sendTelegram(chatId, m.langCurrent(LANG_LABELS[lang]), token);
     return;
@@ -328,6 +351,7 @@ async function handleMessage(message, env) {
 
     if (session) {
       session.userAnswers = {};
+      session.essayGrades = {};
       await env.QUIZ_SESSIONS.put(schedState.quizKey, JSON.stringify(session), { expirationTtl: 7 * 86400 });
     }
 
@@ -369,6 +393,7 @@ async function handleMessage(message, env) {
 
     const quiz = JSON.parse(quizRaw);
     quiz.userAnswers = {};
+    quiz.essayGrades = {};
 
     await env.QUIZ_SESSIONS.put(chatId, JSON.stringify(quiz), { expirationTtl: 86400 });
     await saveScheduleState({
@@ -425,7 +450,7 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // /먼저 N or /first N — reorder queue
+  // /먼저 N 또는 /first N — 큐 순서 변경
   const firstMatch = rawText.match(/^\/(?:먼저|first)\s+(\d+)$/);
   if (firstMatch) {
     const n = parseInt(firstMatch[1], 10);
@@ -451,7 +476,7 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // essay answer handling
+  // 서술형 답변 처리
   const session = await getSession(chatId, env);
   if (!session) return;
 
@@ -459,7 +484,7 @@ async function handleMessage(message, env) {
   const mcDone = Object.keys(session.userAnswers).filter(k => session.questions[+k]?.type === 'multiple').length;
   if (mcDone < mcTotal) return;
 
-  const idx = findPending(session, 'essay');
+  const idx = findPendingEssayText(session);
   if (idx === null) return;
 
   session.userAnswers[idx] = rawText;
@@ -470,7 +495,13 @@ async function handleMessage(message, env) {
     await saveScheduleState({ ...schedState, state: 'quiz_active', lastActivityAt: Date.now(), lastReminderAt: null }, env);
   }
 
-  await sendNext(chatId, session, token, lang, env);
+  // 모범 답안 + 자가 채점 버튼
+  const q = session.questions[idx];
+  const buttons = [[
+    { text: m.essaySelfYes, callback_data: JSON.stringify({ q: idx, eg: 1 }) },
+    { text: m.essaySelfNo, callback_data: JSON.stringify({ q: idx, eg: 0 }) },
+  ]];
+  await sendTelegram(chatId, m.essayModelAnswer(q.modelAnswer ?? '—'), token, { inline_keyboard: buttons });
 }
 
 // ===== Quiz Flow =====
@@ -490,11 +521,23 @@ async function sendNext(chatId, session, token, lang, env) {
     return;
   }
 
-  const nextEssay = findPending(session, 'essay');
-  if (nextEssay !== null) {
-    const q = questions[nextEssay];
-    const essayDone = Object.keys(session.userAnswers).filter(k => questions[+k]?.type === 'essay').length;
+  const nextEssayText = findPendingEssayText(session);
+  if (nextEssayText !== null) {
+    const q = questions[nextEssayText];
+    const essayGrades = session.essayGrades ?? {};
+    const essayDone = Object.keys(essayGrades).filter(k => questions[+k]?.type === 'essay').length;
     await sendTelegram(chatId, `${m.essayLabel(essayDone + 1, essayTotal, q.difficulty)}\n\n${q.q}\n\n${m.essayHint}`, token);
+    return;
+  }
+
+  const nextEssayGrade = findPendingEssayGrade(session);
+  if (nextEssayGrade !== null) {
+    const q = questions[nextEssayGrade];
+    const buttons = [[
+      { text: m.essaySelfYes, callback_data: JSON.stringify({ q: nextEssayGrade, eg: 1 }) },
+      { text: m.essaySelfNo, callback_data: JSON.stringify({ q: nextEssayGrade, eg: 0 }) },
+    ]];
+    await sendTelegram(chatId, m.essayModelAnswer(q.modelAnswer ?? '—'), token, { inline_keyboard: buttons });
     return;
   }
 
@@ -503,6 +546,7 @@ async function sendNext(chatId, session, token, lang, env) {
 
 async function grade(chatId, session, token, lang, env) {
   const questions = session.questions;
+  const essayGrades = session.essayGrades ?? {};
   let correct = 0;
   const wrong = [];
 
@@ -513,13 +557,12 @@ async function grade(chatId, session, token, lang, env) {
       if (ans === q.answer) correct++;
       else {
         const correctFull = q.options.find(o => o[0] === q.answer) ?? q.answer;
-        const userFull = q.options.find(o => o[0] === ans) ?? (ans ?? 'no answer');
+        const userFull = q.options.find(o => o[0] === ans) ?? (ans ?? '미응답');
         wrong.push({ section: q.section, q: q.q, correct: correctFull, user: userFull });
       }
     } else {
-      const ok = await gradeEssay(q.q, ans, session.content, env);
-      if (ok) correct++;
-      else wrong.push({ section: q.section, q: q.q, essay: true });
+      if (essayGrades[i] === true) correct++;
+      else wrong.push({ section: q.section, q: q.q, modelAnswer: q.modelAnswer, essay: true });
     }
   }
 
@@ -539,7 +582,10 @@ async function grade(chatId, session, token, lang, env) {
       msg += `${i + 1}. 📍 *[${w.section}]* ${m.sectionWord}\n`;
       msg += `   Q: ${w.q}\n`;
       if (w.correct) msg += `   ${m.correctLabel}: ${w.correct}\n   ${m.yourAnswerLabel}: ${w.user}\n`;
-      if (w.essay) msg += `   ${m.wrongEssayHint}\n`;
+      if (w.essay) {
+        if (w.modelAnswer) msg += `   📖 ${m.modelAnswerLabel}: ${w.modelAnswer}\n`;
+        msg += `   ${m.wrongEssayHint}\n`;
+      }
       msg += '\n';
     });
     const sections = [...new Set(wrong.map(w => w.section))];
@@ -548,6 +594,7 @@ async function grade(chatId, session, token, lang, env) {
     msg += '\n' + m.retryLater;
 
     session.userAnswers = {};
+    session.essayGrades = {};
     await saveSession(chatId, session, env);
     await saveScheduleState({
       ...(schedState ?? { file: session.draftFile, title: session.title, quizKey: null }),
@@ -591,7 +638,7 @@ async function saveSession(chatId, session, env) {
 
 // ===== Date Helpers =====
 
-// KST = UTC+9. daysOffset: 0=today, 1=tomorrow, 2=day after
+// KST = UTC+9. daysOffset: 0=오늘, 1=내일, 2=모레
 function getKSTDateString(daysOffset = 0) {
   const now = new Date();
   const kstMs = now.getTime() + (9 * 60 * 60 + daysOffset * 24 * 60 * 60) * 1000;
@@ -600,8 +647,8 @@ function getKSTDateString(daysOffset = 0) {
 
 // ===== Telegram Helpers =====
 
-// Telegram setMyCommands only accepts [a-z0-9_] — Korean command names are not supported.
-// English commands are registered for autocomplete; Korean aliases still work when typed directly.
+// Telegram setMyCommands는 [a-z0-9_]만 허용 — 한국어 명령어 이름 등록 불가
+// 영문 명령어만 자동완성에 등록; /퀴즈 등 한국어 별칭은 타이핑 시 그대로 작동
 async function registerCommands(token, lang) {
   const commands = lang === 'en'
     ? [
@@ -617,7 +664,7 @@ async function registerCommands(token, lang) {
     : [
         { command: 'start',    description: '봇 상태 및 큐 확인' },
         { command: 'quiz',     description: '퀴즈 시작  (/퀴즈 도 가능)' },
-        { command: 'skip',     description: '건너뛰기  (/건너뛰기 도 가능)' },
+        { command: 'skip',     description: '퀴즈 건너뛰기  (/건너뛰기 도 가능)' },
         { command: 'publish',  description: '즉시 발행  (/발행 도 가능)' },
         { command: 'postpone', description: '미루기  (/미루기 도 가능)' },
         { command: 'queue',    description: '대기 목록  (/큐 도 가능)' },
@@ -652,30 +699,11 @@ async function answerCallbackQuery(queryId, text, token) {
 
 // ===== Quiz Helpers =====
 
-async function gradeEssay(question, answer, content, env) {
-  if (!answer?.trim()) return false;
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      max_tokens: 10,
-      messages: [{ role: 'user', content: `Source: ${content.slice(0, 800)}\nQuestion: ${question}\nAnswer: ${answer}\nReturn 1 if key concepts are covered, 0 otherwise.` }],
-    }),
-  });
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() === '1';
-}
 
 async function triggerPublish(draftFile, env) {
-  // env.GITHUB_REPO format: "username/repo-name"
   await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/vnd.github.v3+json',
-    },
+    headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, 'Content-Type': 'application/json', Accept: 'application/vnd.github.v3+json' },
     body: JSON.stringify({ event_type: 'publish-post', client_payload: { draft_file: draftFile } }),
   });
 }
@@ -683,6 +711,21 @@ async function triggerPublish(draftFile, env) {
 function findPending(session, type) {
   for (let i = 0; i < session.questions.length; i++) {
     if (session.questions[i].type === type && session.userAnswers[i] === undefined) return i;
+  }
+  return null;
+}
+
+function findPendingEssayText(session) {
+  for (let i = 0; i < session.questions.length; i++) {
+    if (session.questions[i].type === 'essay' && session.userAnswers[i] === undefined) return i;
+  }
+  return null;
+}
+
+function findPendingEssayGrade(session) {
+  const grades = session.essayGrades ?? {};
+  for (let i = 0; i < session.questions.length; i++) {
+    if (session.questions[i].type === 'essay' && session.userAnswers[i] !== undefined && grades[i] === undefined) return i;
   }
   return null;
 }
