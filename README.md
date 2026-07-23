@@ -174,11 +174,39 @@ Invoke-RestMethod `
 
 | Command | What it does |
 |---------|-------------|
-| `/start` | Show status and queue info |
-| `/quiz` | Start the current quiz |
-| `/publish` | Publish the front-of-queue post |
-| `/skip` | Skip the current quiz |
-| `/postpone` | Move the quiz to tomorrow |
+| `/start` | 봇 상태 및 큐 확인 |
+| `/퀴즈` | 지금 바로 퀴즈 시작 (18:00 크론 기다리지 않고) |
+| `/건너뛰기` | 퀴즈 스킵 → 내일 08:00 발행 예약 |
+| `/발행` | 즉시 발행 (퀴즈 통과 or 건너뛰기 후) |
+| `/미루기` | 오늘 퀴즈를 내일 18:00으로 미루기 |
+
+### Register commands in Telegram
+
+Run once so `/` autocomplete works in the chat:
+
+**Mac**
+```bash
+curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commands": [
+      {"command": "start", "description": "봇 상태 및 큐 확인"},
+      {"command": "퀴즈", "description": "지금 바로 퀴즈 시작"},
+      {"command": "건너뛰기", "description": "퀴즈 스킵 후 내일 08:00 발행"},
+      {"command": "발행", "description": "즉시 발행"},
+      {"command": "미루기", "description": "내일 18:00으로 미루기"}
+    ]
+  }'
+```
+
+**Windows (PowerShell)**
+```powershell
+Invoke-RestMethod `
+  -Uri "https://api.telegram.org/botYOUR_BOT_TOKEN/setMyCommands" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"commands":[{"command":"start","description":"봇 상태 및 큐 확인"},{"command":"퀴즈","description":"지금 바로 퀴즈 시작"},{"command":"건너뛰기","description":"퀴즈 스킵 후 내일 08:00 발행"},{"command":"발행","description":"즉시 발행"},{"command":"미루기","description":"내일 18:00으로 미루기"}]}'
+```
 
 ---
 
