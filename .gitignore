@@ -1,0 +1,13 @@
+# Environment — never commit real secrets
+.env
+.env.local
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node
+node_modules/
