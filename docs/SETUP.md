@@ -54,13 +54,10 @@ wrangler --version
 
 ---
 
-## Step 3 — Get OpenAI API Key
+## Step 3 — Get your Telegram Chat ID
 
-1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Click **Create new secret key**
-3. Copy the key — it starts with `sk-`
-
-> ⚠️ You can only see this key once. Store it immediately.
+1. Open Telegram → search **@userinfobot** → send `/start`
+2. It replies with your **Id** — copy it
 
 ---
 
@@ -102,7 +99,7 @@ A browser window will open — authorize Wrangler to access your account.
 
 ```bash
 # Clone this repo
-git clone https://github.com/YOUR_USERNAME/quiz-publish-bot.git
+git clone https://github.com/wjdghtls95/quiz-publish-bot.git
 cd quiz-publish-bot
 ```
 
@@ -130,7 +127,6 @@ Set them directly in the Cloudflare dashboard:
 | Variable | Value |
 |----------|-------|
 | `TELEGRAM_BOT_TOKEN` | Token from Step 2 |
-| `OPENAI_API_KEY` | Key from Step 3 |
 | `GITHUB_TOKEN` | Token from Step 4 |
 | `GITHUB_REPO` | `your-username/your-blog-repo` |
 
@@ -151,7 +147,7 @@ Expected output:
 
 ## Step 9 — Register Telegram Webhook
 
-Replace `YOUR_BOT_TOKEN` and `YOUR_WORKER_URL` with your values:
+Replace `YOUR_BOT_TOKEN` and `YOUR_SUBDOMAIN` with your values:
 
 ### Mac
 
@@ -177,4 +173,4 @@ Invoke-RestMethod -Uri "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" `
 1. Open Telegram → find your bot → send `/start`
 2. You should see: `Quiz bot ready — Queue: 0 items — No active quiz`
 
-**Done!** Now set up [blog-starter](https://github.com/YOUR_USERNAME/blog-starter) to start publishing.
+**Done!** Now set up [blog-starter](https://github.com/wjdghtls95/blog-starter) to start publishing.
