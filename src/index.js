@@ -1,4 +1,20 @@
 const PASS_SCORE = 70;
+const CATEGORY_ORDER = ['learning', 'project', 'devlog'];
+
+function sortQueue(queue, lastCategory) {
+  if (!queue.length) return queue;
+  let ordered = [...CATEGORY_ORDER];
+  if (lastCategory && CATEGORY_ORDER.includes(lastCategory)) {
+    const start = (CATEGORY_ORDER.indexOf(lastCategory) + 1) % CATEGORY_ORDER.length;
+    ordered = [...CATEGORY_ORDER.slice(start), ...CATEGORY_ORDER.slice(0, start)];
+  }
+  return [...queue].sort((a, b) => {
+    const ai = ordered.indexOf(a.category || 'learning');
+    const bi = ordered.indexOf(b.category || 'learning');
+    if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    return (a.part || 99) - (b.part || 99);
+  });
+}
 
 // KV 키 목록
 // 'USER_CHAT_ID'        → 유저 Telegram chat ID (첫 /start 시 저장)
@@ -139,6 +155,7 @@ const CMD_ALIASES = {
   '/미루기': '/postpone',
   '/큐': '/queue',
   '/언어': '/lang',
+  '/상태': '/status',
 };
 
 export default {
@@ -178,7 +195,12 @@ async function handleQuizStart(env) {
   if (!chatId) return;
 
   const quizRaw = await env.QUIZ_SESSIONS.get(item.quizKey);
-  if (!quizRaw) return;
+  if (!quizRaw) {
+    // 만료된 퀴즈 — 사용자에게 알림
+    const lang = await getLang(env);
+    await sendTelegram(chatId, msgs(lang).quizExpired, env.TELEGRAM_BOT_TOKEN);
+    return;
+  }
 
   const quiz = JSON.parse(quizRaw);
   quiz.userAnswers = {};
@@ -189,6 +211,7 @@ async function handleQuizStart(env) {
     file: item.file,
     title: item.title,
     quizKey: item.quizKey,
+    category: item.category || 'learning',
     state: 'quiz_active',
     retryCount: 0,
     lastActivityAt: Date.now(),
@@ -209,6 +232,7 @@ async function handlePublish(env) {
 
   const chatId = await env.QUIZ_SESSIONS.get('USER_CHAT_ID');
   await triggerPublish(state.file, env);
+  await env.QUIZ_SESSIONS.put('LAST_PUBLISHED_CATEGORY', state.category || 'learning');
   await env.QUIZ_SESSIONS.delete('SCHEDULE_STATE');
 
   if (chatId) {
@@ -270,6 +294,79 @@ async function handleCallbackQuery(query, env) {
   const lang = await getLang(env);
   const m = msgs(lang);
 
+  // 개선 제안 승인/거절 버튼 — 퀴즈 세션 없어도 처리 (session check 전에)
+  if (data.a === 'approve') {
+    const pendingKey = `pending_approval_${data.k}`;
+    const raw = await env.QUIZ_SESSIONS.get(pendingKey);
+    if (!raw) {
+      await answerCallbackQuery(query.id, '⚠️ 데이터가 만료됐습니다. 다시 push해주세요', token);
+      return;
+    }
+    const result = JSON.parse(raw);
+    await env.QUIZ_SESSIONS.delete(pendingKey);
+
+    const queueRaw = await env.QUIZ_SESSIONS.get('PENDING_QUEUE');
+    const queue = queueRaw ? JSON.parse(queueRaw) : [];
+    const quizKey = `pending_quiz_${data.k}`;
+
+    await env.QUIZ_SESSIONS.put(quizKey, JSON.stringify({
+      title: result.title,
+      questions: result.questions,
+      draftFile: result.file || result.draftFile,
+      userAnswers: {},
+    }), { expirationTtl: 7 * 86400 });
+
+    queue.push({
+      file: result.file || result.draftFile,
+      title: result.title,
+      quizKey,
+      category: result.category || 'learning',
+      tags: result.tags || [],
+      series: result.series || null,
+      part: result.part || null,
+    });
+    const lastCategory = await env.QUIZ_SESSIONS.get('LAST_PUBLISHED_CATEGORY');
+    const sortedQueue = sortQueue(queue, lastCategory);
+    await env.QUIZ_SESSIONS.put('PENDING_QUEUE', JSON.stringify(sortedQueue));
+
+    const existingDate = await env.QUIZ_SESSIONS.get('NEXT_QUIZ_DATE');
+    const nextDate = existingDate || getKSTDateString();
+    if (!existingDate) await env.QUIZ_SESSIONS.put('NEXT_QUIZ_DATE', nextDate);
+
+    const queuePos = sortedQueue.findIndex(q => q.quizKey === quizKey) + 1;
+    const studyLine = result.study ? `\n📚 *퀴즈 전에 읽어보세요:*\n  \`${result.study}\`` : '';
+
+    await answerCallbackQuery(query.id, '✅ 큐에 등록됐습니다', token);
+    await sendTelegram(chatId,
+      `📥 *퀴즈 등록됐습니다*\n\n제목: _${result.title}_${studyLine}\n📋 큐 순서: ${queuePos}/${sortedQueue.length}\n퀴즈 예정: ${nextDate} 18:00 KST`,
+      token
+    );
+    return;
+  }
+
+  if (data.a === 'reject') {
+    const pendingKey = `pending_approval_${data.k}`;
+    const raw = await env.QUIZ_SESSIONS.get(pendingKey);
+    const draftFile = raw ? (JSON.parse(raw).file || JSON.parse(raw).draftFile) : null;
+    await env.QUIZ_SESSIONS.delete(pendingKey);
+
+    // REVISION_LIST에 추가 → 다음 cron 실행 시 .processed-drafts에서 제거해 재처리
+    if (draftFile) {
+      const listRaw = await env.QUIZ_SESSIONS.get('REVISION_LIST');
+      const revList = listRaw ? JSON.parse(listRaw) : [];
+      if (!revList.includes(draftFile)) revList.push(draftFile);
+      await env.QUIZ_SESSIONS.put('REVISION_LIST', JSON.stringify(revList), { expirationTtl: 7 * 86400 });
+    }
+
+    await answerCallbackQuery(query.id, '✏️ 파일 수정 후 내일 7:30에 자동 재처리', token);
+    await sendTelegram(chatId,
+      `✏️ *수정 모드*\n\n\`${draftFile || '파일'}\` 수정하면 됩니다\n\npush 불필요 — 내일 7:30 AM에 자동으로 재처리됩니다`,
+      token
+    );
+    return;
+  }
+
+  // 이하 퀴즈 관련 — 세션 필요
   const session = await getSession(chatId, env);
   if (!session) return;
 
@@ -400,6 +497,7 @@ async function handleMessage(message, env) {
       file: item.file,
       title: item.title,
       quizKey: item.quizKey,
+      category: item.category || 'learning',
       state: 'quiz_active',
       retryCount: 0,
       lastActivityAt: Date.now(),
@@ -421,6 +519,7 @@ async function handleMessage(message, env) {
     const publishDate = getKSTDateString(1);
     await saveScheduleState({ ...schedState, state: 'passed', publishDate, lastActivityAt: Date.now() }, env);
     await env.QUIZ_SESSIONS.put('NEXT_QUIZ_DATE', getKSTDateString(2));
+    await env.QUIZ_SESSIONS.put('LAST_PUBLISHED_CATEGORY', schedState.category || 'learning');
     await env.QUIZ_SESSIONS.delete(chatId);
     await sendTelegram(chatId, m.skipDone(schedState.title), token);
     return;
@@ -435,6 +534,7 @@ async function handleMessage(message, env) {
     }
 
     await triggerPublish(schedState.file, env);
+    await env.QUIZ_SESSIONS.put('LAST_PUBLISHED_CATEGORY', schedState.category || 'learning');
     await env.QUIZ_SESSIONS.delete('SCHEDULE_STATE');
     await sendTelegram(chatId, m.publishDone(schedState.title), token);
     return;
@@ -447,6 +547,71 @@ async function handleMessage(message, env) {
       return;
     }
     await sendTelegram(chatId, m.queueList(queue), token);
+    return;
+  }
+
+  if (text === '/error') {
+    const raw = await env.QUIZ_SESSIONS.get('LAST_ERROR');
+    if (!raw) {
+      await sendTelegram(chatId, '✅ 최근 에러 없음', token);
+      return;
+    }
+    const err = JSON.parse(raw);
+    if (!err.time || !err.message) {
+      await sendTelegram(chatId, '✅ 최근 에러 없음', token);
+      return;
+    }
+    await sendTelegram(chatId, `🔴 *마지막 에러*\n\n🕐 ${err.time}\n\n\`\`\`\n${err.message}\n\`\`\``, token);
+    return;
+  }
+
+  if (text === '/status') {
+    const [queueRaw, stateRaw, errorRaw, nextDate] = await Promise.all([
+      env.QUIZ_SESSIONS.get('PENDING_QUEUE'),
+      env.QUIZ_SESSIONS.get('SCHEDULE_STATE'),
+      env.QUIZ_SESSIONS.get('LAST_ERROR'),
+      env.QUIZ_SESSIONS.get('NEXT_QUIZ_DATE'),
+    ]);
+
+    const queue = queueRaw ? JSON.parse(queueRaw) : [];
+    const state = stateRaw ? JSON.parse(stateRaw) : null;
+    const err = errorRaw ? JSON.parse(errorRaw) : null;
+
+    // 큐 섹션
+    const queueSection = queue.length === 0
+      ? '없음'
+      : queue.map((it, i) => `  ${i + 1}. _${it.title}_ (${it.category ?? '?'})`).join('\n');
+
+    // 현재 퀴즈 섹션
+    let quizSection = '없음';
+    if (state) {
+      const stateLabel = {
+        quiz_active: '진행 중',
+        passed: '통과 ✅',
+        failed: '실패 — 재시도 대기',
+        no_show: '미응시',
+      }[state.state] ?? state.state;
+      quizSection = `_${state.title}_\n  상태: ${stateLabel}`;
+      if (state.publishDate) quizSection += `\n  발행 예정: ${state.publishDate} 08:00 KST`;
+    }
+
+    // 다음 퀴즈 예정일
+    const nextSection = nextDate ? `${nextDate} 18:00 KST` : '미정';
+
+    // 에러 섹션
+    const errSection = (err?.time && err?.message)
+      ? `🔴 ${err.time}\n  \`${err.message.slice(0, 80)}${err.message.length > 80 ? '...' : ''}\``
+      : '없음 ✅';
+
+    await sendTelegram(
+      chatId,
+      `📊 *블로그 현황*\n\n` +
+      `📋 *대기 큐* (${queue.length}개)\n${queueSection}\n\n` +
+      `🎯 *현재 퀴즈*\n  ${quizSection}\n\n` +
+      `📅 *다음 퀴즈 예정*\n  ${nextSection}\n\n` +
+      `⚠️ *마지막 에러*\n  ${errSection}`,
+      token,
+    );
     return;
   }
 
@@ -657,18 +822,22 @@ async function registerCommands(token, lang) {
         { command: 'skip',     description: 'Skip quiz, publish tomorrow 08:00' },
         { command: 'publish',  description: 'Publish immediately' },
         { command: 'postpone', description: 'Postpone to tomorrow 18:00' },
+        { command: 'status',   description: 'Show full bot status' },
         { command: 'queue',    description: 'Show pending drafts' },
         { command: 'first',    description: 'Reorder queue — /first 2' },
+        { command: 'error',    description: 'Check last pipeline error' },
         { command: 'lang',     description: 'Switch language — /lang ko' },
       ]
     : [
         { command: 'start',    description: '봇 상태 및 큐 확인' },
+        { command: 'status',   description: '전체 현황 — 큐/퀴즈/에러  (/상태 도 가능)' },
         { command: 'quiz',     description: '퀴즈 시작  (/퀴즈 도 가능)' },
         { command: 'skip',     description: '퀴즈 건너뛰기  (/건너뛰기 도 가능)' },
         { command: 'publish',  description: '즉시 발행  (/발행 도 가능)' },
         { command: 'postpone', description: '미루기  (/미루기 도 가능)' },
         { command: 'queue',    description: '대기 목록  (/큐 도 가능)' },
         { command: 'first',    description: '순서 변경 — /first 2  (/먼저 2 도 가능)' },
+        { command: 'error',    description: '마지막 파이프라인 에러 확인' },
         { command: 'lang',     description: '언어 변경 — /lang en  (/언어 en 도 가능)' },
       ];
 
@@ -679,8 +848,25 @@ async function registerCommands(token, lang) {
   });
 }
 
+// 코드블록(```)이 인접 Markdown 서식(*/_)과 섞이면 Telegram 파서가 실패함.
+// 코드블록 앞뒤에 빈 줄을 강제하고, 코드블록이 있는 메시지는 Markdown 파싱을 끈다.
+function prepareMessage(text) {
+  const hasCodeBlock = /```/.test(text);
+  if (!hasCodeBlock) return { text, parse_mode: 'Markdown' };
+
+  // 코드블록 앞뒤 줄바꿈 보정
+  const normalized = text
+    .replace(/([^\n])(\n?```)/g, '$1\n\n```')
+    .replace(/(```[^\n]*\n[\s\S]*?```)([^\n])/g, '$1\n\n$2');
+
+  // 코드블록 있으면 parse_mode 제거 — 코드는 그대로, */_는 장식 없이 노출
+  return { text: normalized, parse_mode: undefined };
+}
+
 async function sendTelegram(chatId, text, token, replyMarkup) {
-  const body = { chat_id: chatId, text, parse_mode: 'Markdown' };
+  const { text: finalText, parse_mode } = prepareMessage(text);
+  const body = { chat_id: chatId, text: finalText };
+  if (parse_mode) body.parse_mode = parse_mode;
   if (replyMarkup) body.reply_markup = replyMarkup;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -701,7 +887,7 @@ async function answerCallbackQuery(queryId, text, token) {
 
 
 async function triggerPublish(draftFile, env) {
-  await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
+  await fetch('https://api.github.com/repos/wjdghtls95/wjdghtls95.github.io/dispatches', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, 'Content-Type': 'application/json', Accept: 'application/vnd.github.v3+json' },
     body: JSON.stringify({ event_type: 'publish-post', client_payload: { draft_file: draftFile } }),
