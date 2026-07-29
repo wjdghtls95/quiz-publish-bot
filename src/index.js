@@ -40,8 +40,8 @@ const MESSAGES = {
     postponeNone: '현재 진행 중인 퀴즈가 없습니다',
     postponeDone: (title) => `⏭️ 내일 오후 6시로 미뤘습니다\n_${title}_`,
     quizActive: (title) => `📝 *${title}* 퀴즈 진행 중입니다`,
-    quizEmpty: '대기 중인 글이 없습니다\ndrafts/ 에 초안을 push해주세요',
-    quizExpired: '⚠️ 퀴즈 데이터가 만료됐습니다. drafts/에 다시 push해주세요',
+    quizEmpty: '대기 중인 글이 없습니다\nblog-queue.md에 등록하면 다음 날 자동 처리됩니다',
+    quizExpired: '⚠️ 퀴즈 데이터가 만료됐습니다. 파일을 저장해서 재처리하거나 /error로 확인하세요',
     quizStart: (title) => `📝 *퀴즈 시작: ${title}*\n\n글을 잘 읽었는지 확인해볼게요`,
     skipNone: '현재 진행 중인 퀴즈가 없습니다',
     skipDone: (title) => `⏭️ 퀴즈 건너뛰었습니다\n내일 오전 8시에 게시됩니다 🚀\n_${title}_`,
@@ -59,10 +59,11 @@ const MESSAGES = {
     firstDone: (title) => `✅ "${title}" 를 1번으로 이동했습니다`,
     scheduledStart: (title) => `📝 *퀴즈 시작: ${title}*\n\n글을 잘 읽었는지 확인해볼게요`,
     scheduledPublish: (title) => `🚀 게시됐습니다!\n_${title}_`,
-    retryExpired: '⚠️ 퀴즈 데이터가 만료됐습니다. drafts/에 다시 push해주세요',
+    retryExpired: '⚠️ 퀴즈 데이터가 만료됐습니다. 파일을 저장해서 재처리하거나 /error로 확인하세요',
     retryStart: (n) => `🔄 *재시도 (${n}회차)*\n처음부터 다시 시작합니다`,
     reminder: '⏰ 퀴즈가 아직 완료되지 않았습니다\n계속 답하거나 /미루기 로 내일로 미룰 수 있습니다',
     mcLabel: (done, total, diff) => `*Q${done}/${total} [${diff}] (객관식)*`,
+    chooseAnswer: '선택지 👇',
     essayLabel: (done, total, diff) => `*서술형 ${done}/${total} [${diff}]*`,
     essayHint: '_자유롭게 답변해주세요_',
     essayModelAnswer: answer => `📖 *모범 답안*\n\n${answer}\n\n이 내용을 이해했나요?`,
@@ -91,8 +92,8 @@ const MESSAGES = {
     postponeNone: 'No active quiz',
     postponeDone: (title) => `⏭️ Postponed to tomorrow 18:00\n_${title}_`,
     quizActive: (title) => `📝 *${title}* quiz in progress`,
-    quizEmpty: 'No drafts in queue\nPush a file to drafts/ to get started',
-    quizExpired: '⚠️ Quiz data expired. Push the draft again.',
+    quizEmpty: 'No drafts in queue\nAdd to blog-queue.md to start the pipeline',
+    quizExpired: '⚠️ Quiz data expired. Save the file to trigger reprocessing.',
     quizStart: (title) => `📝 *Quiz: ${title}*\n\nLet's check how well you read it`,
     skipNone: 'No active quiz',
     skipDone: (title) => `⏭️ Quiz skipped\nPublishing tomorrow at 08:00 🚀\n_${title}_`,
@@ -110,10 +111,11 @@ const MESSAGES = {
     firstDone: (title) => `✅ "${title}" moved to #1`,
     scheduledStart: (title) => `📝 *Quiz: ${title}*\n\nLet's check how well you read it`,
     scheduledPublish: (title) => `🚀 Published!\n_${title}_`,
-    retryExpired: '⚠️ Quiz data expired. Push the draft again.',
+    retryExpired: '⚠️ Quiz data expired. Save the file to trigger reprocessing.',
     retryStart: (n) => `🔄 *Retry #${n}*\nStarting from the beginning`,
     reminder: '⏰ Quiz not yet completed\nContinue or use /postpone to delay until tomorrow',
     mcLabel: (done, total, diff) => `*Q${done}/${total} [${diff}] (Multiple Choice)*`,
+    chooseAnswer: 'Choose 👇',
     essayLabel: (done, total, diff) => `*Essay ${done}/${total} [${diff}]*`,
     essayHint: '_Answer freely_',
     essayModelAnswer: answer => `📖 *Model Answer*\n\n${answer}\n\nDid you understand this?`,
@@ -299,7 +301,7 @@ async function handleCallbackQuery(query, env) {
     const pendingKey = `pending_approval_${data.k}`;
     const raw = await env.QUIZ_SESSIONS.get(pendingKey);
     if (!raw) {
-      await answerCallbackQuery(query.id, '⚠️ 데이터가 만료됐습니다. 다시 push해주세요', token);
+      await answerCallbackQuery(query.id, '⚠️ 이미 수정할게요를 선택했습니다. 파일 저장 시 자동 재처리됩니다', token);
       return;
     }
     const result = JSON.parse(raw);
@@ -358,9 +360,9 @@ async function handleCallbackQuery(query, env) {
       await env.QUIZ_SESSIONS.put('REVISION_LIST', JSON.stringify(revList), { expirationTtl: 7 * 86400 });
     }
 
-    await answerCallbackQuery(query.id, '✏️ 파일 수정 후 내일 7:30에 자동 재처리', token);
+    await answerCallbackQuery(query.id, '✏️ 파일 저장하면 fswatch가 즉시 감지합니다', token);
     await sendTelegram(chatId,
-      `✏️ *수정 모드*\n\n\`${draftFile || '파일'}\` 수정하면 됩니다\n\npush 불필요 — 내일 7:30 AM에 자동으로 재처리됩니다`,
+      `✏️ *수정 모드*\n\n\`${draftFile || '파일'}\` 수정 후 저장하면 됩니다\n\nfswatch가 감지해서 즉시 재처리됩니다 (push 불필요)`,
       token
     );
     return;
@@ -489,6 +491,7 @@ async function handleMessage(message, env) {
     }
 
     const quiz = JSON.parse(quizRaw);
+    quiz.questions = normalizeQuestions(quiz.questions);
     quiz.userAnswers = {};
     quiz.essayGrades = {};
 
@@ -682,7 +685,14 @@ async function sendNext(chatId, session, token, lang, env) {
     const q = questions[nextMC];
     const mcDone = Object.keys(session.userAnswers).filter(k => questions[+k]?.type === 'multiple').length;
     const buttons = q.options.map(opt => [{ text: opt, callback_data: JSON.stringify({ q: nextMC, a: opt[0] }) }]);
-    await sendTelegram(chatId, `${m.mcLabel(mcDone + 1, mcTotal, q.difficulty)}\n\n${q.q}`, token, { inline_keyboard: buttons });
+    if (/```/.test(q.q)) {
+      // 코드블록이 있으면 plain label로 질문 먼저 (bold 없어야 Markdown 렌더링 정상)
+      const plainLabel = `Q${mcDone + 1}/${mcTotal} [${q.difficulty}] (객관식)`;
+      await sendTelegram(chatId, `${plainLabel}\n\n${q.q}`, token);
+      await sendTelegram(chatId, m.chooseAnswer, token, { inline_keyboard: buttons });
+    } else {
+      await sendTelegram(chatId, `${m.mcLabel(mcDone + 1, mcTotal, q.difficulty)}\n\n${q.q}`, token, { inline_keyboard: buttons });
+    }
     return;
   }
 
@@ -723,11 +733,11 @@ async function grade(chatId, session, token, lang, env) {
       else {
         const correctFull = q.options.find(o => o[0] === q.answer) ?? q.answer;
         const userFull = q.options.find(o => o[0] === ans) ?? (ans ?? '미응답');
-        wrong.push({ section: q.section, q: q.q, correct: correctFull, user: userFull });
+        wrong.push({ section: q.section ?? '전체', q: q.q, correct: correctFull, user: userFull, explanation: q.explanation });
       }
     } else {
       if (essayGrades[i] === true) correct++;
-      else wrong.push({ section: q.section, q: q.q, modelAnswer: q.modelAnswer, essay: true });
+      else wrong.push({ section: q.section ?? '전체', q: q.q, modelAnswer: q.modelAnswer, essay: true });
     }
   }
 
@@ -745,8 +755,10 @@ async function grade(chatId, session, token, lang, env) {
     let msg = m.failedHeader(percent, correct, questions.length);
     wrong.forEach((w, i) => {
       msg += `${i + 1}. 📍 *[${w.section}]* ${m.sectionWord}\n`;
-      msg += `   Q: ${w.q}\n`;
+      const qSummary = w.q.replace(/```[\s\S]*?```/g, '[코드]').replace(/\n+/g, ' ').trim();
+      msg += `   Q: ${qSummary}\n`;
       if (w.correct) msg += `   ${m.correctLabel}: ${w.correct}\n   ${m.yourAnswerLabel}: ${w.user}\n`;
+      if (w.explanation) msg += `   💡 ${w.explanation}\n`;
       if (w.essay) {
         if (w.modelAnswer) msg += `   📖 ${m.modelAnswerLabel}: ${w.modelAnswer}\n`;
         msg += `   ${m.wrongEssayHint}\n`;
@@ -792,9 +804,22 @@ async function savePendingQueue(queue, env) {
   await env.QUIZ_SESSIONS.put('PENDING_QUEUE', JSON.stringify(queue));
 }
 
+function normalizeQuestions(questions) {
+  if (!Array.isArray(questions)) return questions;
+  return questions.map(q => ({
+    ...q,
+    type: q.type === 'essay' ? 'essay' : 'multiple',
+    section: q.section ?? '전체',
+    difficulty: q.difficulty ?? 'medium',
+  }));
+}
+
 async function getSession(chatId, env) {
   const raw = await env.QUIZ_SESSIONS.get(chatId);
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  const session = JSON.parse(raw);
+  session.questions = normalizeQuestions(session.questions);
+  return session;
 }
 
 async function saveSession(chatId, session, env) {
@@ -849,18 +874,21 @@ async function registerCommands(token, lang) {
 }
 
 // 코드블록(```)이 인접 Markdown 서식(*/_)과 섞이면 Telegram 파서가 실패함.
-// 코드블록 앞뒤에 빈 줄을 강제하고, 코드블록이 있는 메시지는 Markdown 파싱을 끈다.
+// 코드블록 밖에 *bold*/_italic_이 없으면 Markdown 유지, 있으면 parse_mode 제거.
 function prepareMessage(text) {
   const hasCodeBlock = /```/.test(text);
   if (!hasCodeBlock) return { text, parse_mode: 'Markdown' };
+
+  const outsideCode = text.replace(/```[\s\S]*?```/g, '');
+  const hasMixedMarkdown = /\*[^*\n]+\*|_[^_\n]+_/.test(outsideCode);
 
   // 코드블록 앞뒤 줄바꿈 보정
   const normalized = text
     .replace(/([^\n])(\n?```)/g, '$1\n\n```')
     .replace(/(```[^\n]*\n[\s\S]*?```)([^\n])/g, '$1\n\n$2');
 
-  // 코드블록 있으면 parse_mode 제거 — 코드는 그대로, */_는 장식 없이 노출
-  return { text: normalized, parse_mode: undefined };
+  // 코드블록 + 인라인 마크다운 혼용 시 parse_mode 제거, 코드블록만 있으면 유지
+  return { text: normalized, parse_mode: hasMixedMarkdown ? undefined : 'Markdown' };
 }
 
 async function sendTelegram(chatId, text, token, replyMarkup) {
