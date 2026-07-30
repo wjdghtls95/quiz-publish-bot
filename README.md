@@ -177,6 +177,7 @@ Both Korean and English commands work at all times. Bot response language defaul
 | Korean | English | What it does |
 |--------|---------|-------------|
 | `/start` | `/start` | Status + queue count |
+| `/상태` | `/status` | Full status — queue, active quiz, last error |
 | `/퀴즈` | `/quiz` | Start quiz immediately (no need to wait for 18:00 cron) |
 | `/건너뛰기` | `/skip` | Skip quiz → schedule publish for tomorrow 08:00 |
 | `/발행` | `/publish` | Publish immediately (after pass or skip) |
@@ -184,6 +185,7 @@ Both Korean and English commands work at all times. Bot response language defaul
 | `/큐` | `/queue` | Show pending drafts list with numbers |
 | `/먼저 N` | `/first N` | Move draft #N to front of queue (e.g. `/first 2`) |
 | `/언어 ko\|en` | `/lang ko\|en` | Switch bot language (`/lang en` or `/lang ko`) |
+| — | `/error` | Check last pipeline error |
 
 ### Register commands in Telegram
 
