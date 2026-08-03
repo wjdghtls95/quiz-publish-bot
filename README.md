@@ -3,35 +3,23 @@
 [🇰🇷 한국어](docs/README.ko.md)
 
 > A Cloudflare Worker Telegram bot for blog publish notifications and spaced repetition review.
-> Write a post → publish → get a review prompt 7 days later to re-explain the concept.
-
-> **Pipeline model change (2026-08-03):** This bot no longer gates publishing behind a quiz.
-> The old model (quiz before publish) was replaced because:
-> - Quiz right after writing = recall from short-term memory, not real learning
-> - Spaced repetition works at 7 days, not immediately after reading
-> - Publishing should not be blocked by quiz score
->
-> New model: write → publish → 7-day review prompt via Telegram
+> Write a post → publish → get a Telegram prompt 7 days later to re-explain the concept in your own words.
 
 ---
 
 ## What this does
 
 ```
-You write a post (via Claude.ai Projects Q&A or directly)
+You write a post and push to drafts/
     ↓
-Drop draft in drafts/ → trigger publish.yml
+Trigger publish.yml → GitHub Actions builds and deploys
     ↓  ← this bot handles everything below
-GitHub Actions builds and deploys the post
-Telegram publish notification sent
+Telegram: publish notification with live URL
     ↓
 7 days later: Telegram asks you to re-explain the concept
     ↓
-You answer in plain text → review complete
+You answer in plain text → spaced repetition review complete
 ```
-
-> **Note:** The 7-day review feature is in progress. The current Worker handles publish notifications.
-> Worker simplification (removing quiz state machine, adding review queue) coming soon.
 
 ---
 
