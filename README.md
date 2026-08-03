@@ -2,25 +2,36 @@
 
 [🇰🇷 한국어](docs/README.ko.md)
 
-> A Cloudflare Worker Telegram bot that manages a quiz-based blog publishing queue.
-> Answer a quiz about your draft → pass → post goes live on your blog.
+> A Cloudflare Worker Telegram bot for blog publish notifications and spaced repetition review.
+> Write a post → publish → get a review prompt 7 days later to re-explain the concept.
+
+> **Pipeline model change (2026-08-03):** This bot no longer gates publishing behind a quiz.
+> The old model (quiz before publish) was replaced because:
+> - Quiz right after writing = recall from short-term memory, not real learning
+> - Spaced repetition works at 7 days, not immediately after reading
+> - Publishing should not be blocked by quiz score
+>
+> New model: write → publish → 7-day review prompt via Telegram
 
 ---
 
 ## What this does
 
 ```
-Draft pushed to GitHub
+You write a post (via Claude.ai Projects Q&A or directly)
     ↓
-Quiz auto-generated (via blog-starter)
+Drop draft in drafts/ → trigger publish.yml
     ↓  ← this bot handles everything below
-Quiz stored in Cloudflare KV
-Telegram notification sent
+GitHub Actions builds and deploys the post
+Telegram publish notification sent
     ↓
-You answer the quiz in Telegram
+7 days later: Telegram asks you to re-explain the concept
     ↓
-/publish → blog-starter GitHub Actions builds and deploys the post
+You answer in plain text → review complete
 ```
+
+> **Note:** The 7-day review feature is in progress. The current Worker handles publish notifications.
+> Worker simplification (removing quiz state machine, adding review queue) coming soon.
 
 ---
 

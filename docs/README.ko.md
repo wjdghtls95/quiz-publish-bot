@@ -2,25 +2,36 @@
 
 [🇺🇸 English](../README.md)
 
-> 퀴즈 통과 후 블로그 포스트를 발행하는 Cloudflare Worker Telegram 봇.
-> 초안 push → 퀴즈 풀기 → 통과 → 포스트 자동 발행.
+> 블로그 발행 알림과 발행 후 7일 복습을 담당하는 Cloudflare Worker Telegram 봇.
+> 글 작성 → 발행 → 7일 후 복습 프롬프트.
+
+> **파이프라인 모델 변경 (2026-08-03):** 이 봇은 더 이상 퀴즈 통과를 발행 조건으로 사용하지 않습니다.
+> 구 모델(발행 전 퀴즈)을 폐기한 이유:
+> - 글 쓰고 바로 퀴즈 = 단기 기억에서 인출, 진짜 학습 확인이 아님
+> - Spaced repetition은 7일 후에 효과가 있음, 바로 다음 날이 아님
+> - 퀴즈 점수가 발행을 블록해서는 안 됨
+>
+> 새 모델: 글 작성 → 발행 → 7일 후 Telegram 복습 질문
 
 ---
 
 ## 동작 방식
 
 ```
-GitHub에 초안 push
+Claude.ai Projects Q&A로 글 작성 (또는 직접 작성)
     ↓
-퀴즈 자동 생성 (blog-starter 담당)
+drafts/에 저장 → publish.yml 트리거
     ↓  ← 이 봇이 아래를 처리
-퀴즈가 Cloudflare KV에 저장됨
-Telegram 알림 수신
+GitHub Actions가 빌드 후 배포
+Telegram 발행 완료 알림
     ↓
-Telegram에서 퀴즈 풀기
+7일 후: Telegram이 개념 재설명 요청
     ↓
-/publish → blog-starter GitHub Actions가 빌드 후 배포
+텍스트 답변 → 복습 완료
 ```
+
+> **참고:** 7일 복습 기능은 구현 중입니다. 현재 Worker는 발행 알림 처리를 담당합니다.
+> Worker 단순화(퀴즈 상태 머신 제거 + 복습 큐 추가) 예정.
 
 ---
 
